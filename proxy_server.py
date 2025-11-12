@@ -1,51 +1,85 @@
 # ==========================================================
-# 🌐 Recommender Proxy Server
-# Designed by Parsa | Powered by FastAPI
+# 🌍 Proxy Server for Book & Movie Recommender
+# By Parsa — Handles TMDB + Google Books API Requests
 # ==========================================================
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Query
 import httpx
 import os
+from dotenv import load_dotenv
 
-app = FastAPI(title="Book & Movie Recommender Proxy")
+load_dotenv()
+app = FastAPI()
 
-# CORS setup - اجازه اتصال از Streamlit
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # بعداً اگه خواستی، فقط دامنه Streamlit رو بذار
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# محیط متغیرها
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 GOOGLE_BOOKS_API_KEY = os.getenv("GOOGLE_BOOKS_API_KEY")
 
+
 @app.get("/")
 def home():
+    """Health check"""
     return {"message": "✅ Proxy Server is running successfully!"}
 
-@app.get("/tmdb")
-async def tmdb_proxy(endpoint: str, params: dict = {}):
-    """پروکسی برای TMDB"""
-    try:
-        url = f"https://api.themoviedb.org/3/{endpoint}"
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params={**params, "api_key": TMDB_API_KEY})
-        return resp.json()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/books")
-async def books_proxy(q: str):
-    """پروکسی برای Google Books"""
-    try:
-        url = f"https://www.googleapis.com/books/v1/volumes"
-        params = {"q": q, "key": GOOGLE_BOOKS_API_KEY, "maxResults": 40, "printType": "books"}
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params)
-        return resp.json()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ==========================================================
+# 🎬 TMDB ENDPOINTS
+# ==========================================================
+
+@app.get("/tmdb/genres")
+async def get_tmdb_genres():
+    """Get TMDB movie genres"""
+    async with httpx.AsyncClient() as client:
+        url = "https://api.themoviedb.org/3/genre/movie/list"
+        params = {"api_key": TMDB_API_KEY, "language": "en-US"}
+        res = await client.get(url, params=params, timeout=15)
+        res.raise_for_status()
+        return res.json()
+
+
+@app.get("/tmdb/discover")
+async def discover_movies(
+    with_genres: int = Query(..., alias="with_genres"),
+    primary_release_year: int = Query(..., alias="primary_release_year"),
+    page: int = 1
+):
+    """Get movies by genre and year"""
+    async with httpx.AsyncClient() as client:
+        url = "https://api.themoviedb.org/3/discover/movie"
+        params = {
+            "api_key": TMDB_API_KEY,
+            "with_genres": with_genres,
+            "primary_release_year": primary_release_year,
+            "language": "en-US",
+            "sort_by": "popularity.desc",
+            "page": page,
+            "include_adult": False,
+        }
+        res = await client.get(url, params=params, timeout=15)
+        res.raise_for_status()
+        return res.json()
+
+
+# ==========================================================
+# 📚 GOOGLE BOOKS ENDPOINT
+# ==========================================================
+
+@app.get("/books/search")
+async def search_books(
+    q: str,
+    maxResults: int = 40,
+    orderBy: str = "relevance",
+    printType: str = "books",
+):
+    """Search books from Google Books API"""
+    async with httpx.AsyncClient() as client:
+        url = "https://www.googleapis.com/books/v1/volumes"
+        params = {
+            "q": q,
+            "maxResults": maxResults,
+            "orderBy": orderBy,
+            "printType": printType,
+            "key": GOOGLE_BOOKS_API_KEY,
+        }
+        res = await client.get(url, params=params, timeout=15)
+        res.raise_for_status()
+        return res.json()
